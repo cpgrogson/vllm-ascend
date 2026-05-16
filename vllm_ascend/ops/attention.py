@@ -76,24 +76,12 @@ def npu_paged_attention(
     # TODO: add proper ALiBi support once torch_npu exposes the parameter.
     if alibi_slopes is not None:
         import warnings
+        # Only warn once per process to avoid flooding logs during repeated calls
+        # (e.g. in multi-step decoding loops). Using stacklevel=2 so the warning
+        # points to the caller rather than this helper.
         warnings.warn(
             "alibi_slopes were provided to npu_paged_attention but are not "
             "currently forwarded to the torch_npu kernel and will be ignored.",
             UserWarning,
             stacklevel=2,
         )
-
-    num_tokens, num_heads, head_size = query.shape
-    output = torch.empty_like(query)
-
-    # torch_npu paged attention expects contiguous tensors
-    query = query.contiguous()
-    key_cache = key_cache.contiguous()
-    value_cache = value_cache.contiguous()
-
-    torch_npu.npu_paged_attention(
-        query,
-        key_cache,
-        value_cache,
-        block_tables,
-        context_lens,
