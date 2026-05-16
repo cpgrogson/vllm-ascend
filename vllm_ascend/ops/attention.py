@@ -54,6 +54,11 @@ def npu_paged_attention(
 
     Returns:
         Output tensor of shape [num_tokens, num_heads, head_size].
+
+    Note:
+        alibi_slopes is accepted for API compatibility but is not currently
+        forwarded to the underlying torch_npu kernel. If ALiBi support is
+        needed, the kernel call below will need to be updated accordingly.
     """
     _check_torch_npu()
 
@@ -93,9 +98,4 @@ def npu_flash_attention_prefill(
     value: torch.Tensor,
     scale: float,
     attn_mask: Optional[torch.Tensor] = None,
-    alibi_slopes: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """Flash attention prefill kernel for Ascend NPU.
-
-    Uses torch_npu's fused flash attention operator for the prefill phase,
-    which process
+    alib
