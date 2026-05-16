@@ -23,7 +23,7 @@ def _check_torch_npu() -> bool:
 def npu_rms_norm(
     x: torch.Tensor,
     weight: torch.Tensor,
-    epsilon: float = 1e-5,
+    epsilon: float = 1e-6,
 ) -> torch.Tensor:
     """NPU-optimized RMS Layer Normalization.
 
@@ -34,8 +34,9 @@ def npu_rms_norm(
         x: Input tensor of shape [..., hidden_size].
         weight: Learnable scale parameter of shape [hidden_size].
         epsilon: Small value added to denominator for numerical stability.
-                 Default changed to 1e-5 (matches PyTorch LayerNorm default
-                 and avoids underflow issues seen with very small activations).
+                 Default is 1e-6, which is consistent with the original
+                 vllm RMSNorm default and most HuggingFace model configs
+                 (e.g. LLaMA uses 1e-6, Mistral uses 1e-5).
 
     Returns:
         Normalized tensor with the same shape as input.
@@ -55,7 +56,7 @@ def npu_fused_add_rms_norm(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
-    epsilon: float = 1e-5,
+    epsilon: float = 1e-6,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """NPU-optimized fused Add + RMS Layer Normalization.
 
@@ -68,7 +69,7 @@ def npu_fused_add_rms_norm(
         residual: Residual tensor of the same shape as x.
         weight: Learnable scale parameter of shape [hidden_size].
         epsilon: Small value added to denominator for numerical stability.
-                 Default changed to 1e-5 to match npu_rms_norm.
+                 Default is 1e-6 to match npu_rms_norm.
 
     Returns:
         A tuple of:
@@ -91,9 +92,4 @@ def npu_fused_add_rms_norm(
 class NPURMSNorm(nn.Module):
     """RMS Normalization module backed by NPU-optimized kernels.
 
-    Drop-in replacement for vllm's RMSNorm that routes computation
-    through :func:`npu_rms_norm` and :func:`npu_fused_add_rms_norm`.
-
-    Args:
-        hidden_size: Dimensionality of the input features.
-        eps: Epsilon for numerical s
+    Drop-in replacemen
