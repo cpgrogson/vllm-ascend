@@ -50,6 +50,7 @@ def npu_paged_attention(
         scale: Softmax scale factor (typically 1 / sqrt(head_size)).
         alibi_slopes: Optional ALiBi slopes of shape [num_heads].
         max_context_len: Maximum context length across all sequences.
+            If None, computed automatically from context_lens.max().
 
     Returns:
         Output tensor of shape [num_tokens, num_heads, head_size].
@@ -57,6 +58,8 @@ def npu_paged_attention(
     _check_torch_npu()
 
     if max_context_len is None:
+        # Compute max_context_len from context_lens to avoid requiring callers
+        # to pass it explicitly; .item() ensures we get a plain Python int.
         max_context_len = int(context_lens.max().item())
 
     num_tokens, num_heads, head_size = query.shape
@@ -95,34 +98,4 @@ def npu_flash_attention_prefill(
     Args:
         query: Query tensor of shape [batch, num_heads, seq_len, head_size].
         key: Key tensor of shape [batch, num_kv_heads, seq_len, head_size].
-        value: Value tensor of shape [batch, num_kv_heads, seq_len, head_size].
-        scale: Softmax scale factor.
-        attn_mask: Optional attention mask (e.g. causal mask).
-        alibi_slopes: Optional ALiBi slopes of shape [num_heads].
-
-    Returns:
-        Output tensor of shape [batch, num_heads, seq_len, head_size].
-    """
-    _check_torch_npu()
-
-    # npu_fusion_attention expects float16 or bfloat16
-    if query.dtype not in (torch.float16, torch.bfloat16):
-        query = query.to(torch.float16)
-        key = key.to(torch.float16)
-        value = value.to(torch.float16)
-
-    output, _, _, _ = torch_npu.npu_fusion_attention(
-        query,
-        key,
-        value,
-        query.shape[1],  # num_heads
-        input_layout="BNSD",
-        pse=None,
-        atten_mask=attn_mask,
-        scale=scale,
-        keep_prob=1.0,
-        pre_tockens=2147483647,
-        next_tockens=0,
-        inner_precise=0,
-    )
-    return output
+        value: Value tenso
