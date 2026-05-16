@@ -62,6 +62,11 @@ def npu_paged_attention(
         # to pass it explicitly; .item() ensures we get a plain Python int.
         max_context_len = int(context_lens.max().item())
 
+    # Guard against an empty batch (e.g. during warmup) to avoid a potential
+    # divide-by-zero or shape mismatch inside the NPU kernel.
+    if query.shape[0] == 0:
+        return torch.empty_like(query)
+
     num_tokens, num_heads, head_size = query.shape
     output = torch.empty_like(query)
 
@@ -93,9 +98,4 @@ def npu_flash_attention_prefill(
     """Flash attention prefill kernel for Ascend NPU.
 
     Uses torch_npu's fused flash attention operator for the prefill phase,
-    which processes full sequences without paging.
-
-    Args:
-        query: Query tensor of shape [batch, num_heads, seq_len, head_size].
-        key: Key tensor of shape [batch, num_kv_heads, seq_len, head_size].
-        value: Value tenso
+    which process
