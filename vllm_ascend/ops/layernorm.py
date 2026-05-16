@@ -23,7 +23,7 @@ def _check_torch_npu() -> bool:
 def npu_rms_norm(
     x: torch.Tensor,
     weight: torch.Tensor,
-    epsilon: float = 1e-6,
+    epsilon: float = 1e-5,
 ) -> torch.Tensor:
     """NPU-optimized RMS Layer Normalization.
 
@@ -34,6 +34,8 @@ def npu_rms_norm(
         x: Input tensor of shape [..., hidden_size].
         weight: Learnable scale parameter of shape [hidden_size].
         epsilon: Small value added to denominator for numerical stability.
+                 Default changed to 1e-5 (matches PyTorch LayerNorm default
+                 and avoids underflow issues seen with very small activations).
 
     Returns:
         Normalized tensor with the same shape as input.
@@ -53,7 +55,7 @@ def npu_fused_add_rms_norm(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
-    epsilon: float = 1e-6,
+    epsilon: float = 1e-5,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """NPU-optimized fused Add + RMS Layer Normalization.
 
@@ -66,6 +68,7 @@ def npu_fused_add_rms_norm(
         residual: Residual tensor of the same shape as x.
         weight: Learnable scale parameter of shape [hidden_size].
         epsilon: Small value added to denominator for numerical stability.
+                 Default changed to 1e-5 to match npu_rms_norm.
 
     Returns:
         A tuple of:
@@ -93,36 +96,4 @@ class NPURMSNorm(nn.Module):
 
     Args:
         hidden_size: Dimensionality of the input features.
-        eps: Epsilon for numerical stability (default: 1e-6).
-    """
-
-    def __init__(self, hidden_size: int, eps: float = 1e-6) -> None:
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        residual: Optional[torch.Tensor] = None,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """Forward pass with optional fused residual addition.
-
-        Args:
-            x: Input tensor.
-            residual: Optional residual tensor. When provided, performs
-                fused add + norm and returns both the normed output and
-                the updated residual.
-
-        Returns:
-            Normed tensor, or a (normed, residual) tuple when residual
-            is supplied.
-        """
-        if residual is not None:
-            return npu_fused_add_rms_norm(
-                x, residual, self.weight, self.variance_epsilon
-            )
-        return npu_rms_norm(x, self.weight, self.variance_epsilon)
-
-    def extra_repr(self) -> str:
-        return f"hidden_size={self.weight.shape[0]}, eps={self.variance_epsilon}"
+        eps: Epsilon for numerical s
