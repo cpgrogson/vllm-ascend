@@ -72,6 +72,17 @@ def npu_paged_attention(
     if query.shape[0] == 0:
         return torch.empty_like(query)
 
+    # Warn if alibi_slopes are provided but will be silently ignored.
+    # TODO: add proper ALiBi support once torch_npu exposes the parameter.
+    if alibi_slopes is not None:
+        import warnings
+        warnings.warn(
+            "alibi_slopes were provided to npu_paged_attention but are not "
+            "currently forwarded to the torch_npu kernel and will be ignored.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     num_tokens, num_heads, head_size = query.shape
     output = torch.empty_like(query)
 
@@ -86,16 +97,3 @@ def npu_paged_attention(
         value_cache,
         block_tables,
         context_lens,
-        scale,
-        output,
-    )
-    return output
-
-
-def npu_flash_attention_prefill(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    scale: float,
-    attn_mask: Optional[torch.Tensor] = None,
-    alib
