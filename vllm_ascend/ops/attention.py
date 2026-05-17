@@ -80,9 +80,8 @@ def npu_paged_attention(
         # (e.g. in multi-step decoding loops). Using stacklevel=2 so the warning
         # points to the caller rather than this module.
         warnings.warn(
-            "alibi_slopes were provided to npu_paged_attention but are not "
-            "currently supported by the torch_npu backend and will be ignored. "
-            "Outputs may differ from expected ALiBi-biased attention.",
+            "alibi_slopes was provided to npu_paged_attention but is not "
+            "currently supported by the torch_npu backend and will be ignored.",
             UserWarning,
             stacklevel=2,
         )
