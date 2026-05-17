@@ -75,6 +75,10 @@ def npu_fused_add_rms_norm(
         A tuple of:
           - normed output tensor of shape [..., hidden_size]
           - updated residual (x + residual) of the same shape
+
+    Note:
+        The residual is updated in-place conceptually (x + residual),
+        but a new tensor is returned to avoid mutating the caller's input.
     """
     # Accumulate residual first
     residual = x + residual
@@ -90,6 +94,4 @@ def npu_fused_add_rms_norm(
 
 
 class NPURMSNorm(nn.Module):
-    """RMS Normalization module backed by NPU-optimized kernels.
-
-    Drop-in replacemen
+    """RMS Normalization module backed by NPU-o
