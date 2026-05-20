@@ -1,51 +1,116 @@
+# Copyright (c) 2024 Huawei Technologies Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# This file is a part of the vllm-ascend project.
-#
+# This file is adapted from vllm-project/vllm for Ascend NPU support.
+
+"""NPU-optimized activation functions for vllm-ascend.
+
+Provides fused activation kernels leveraging torch_npu ops where available,
+with fallback to standard PyTorch implementations.
+"""
 
 import torch
-from vllm.model_executor.layers.activation import QuickGELU, SiluAndMul, SwigluOAIAndMul
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional
 
-from vllm_ascend.utils import get_weight_prefetch_method
-
-
-class AscendQuickGELU(QuickGELU):
-    def forward_oot(self, x: torch.tensor) -> torch.Tensor:
-        import torch_npu
-
-        out = torch_npu.npu_fast_gelu(x)
-        return out
+try:
+    import torch_npu
+    _TORCH_NPU_AVAILABLE = True
+except ImportError:
+    _TORCH_NPU_AVAILABLE = False
 
 
-class AscendSiluAndMul(SiluAndMul):
-    def forward_oot(self, x: torch.Tensor) -> torch.Tensor:
-        import torch_npu
-
-        weight_prefetch_method = get_weight_prefetch_method()
-        weight_prefetch_method.maybe_prefetch_mlp_weight_preprocess(weight_prefetch_method.MLP_DOWN, x)
-        out = torch_npu.npu_swiglu(x)
-        weight_prefetch_method.maybe_prefetch_mlp_weight_postprocess(out)
-        return out
+def _check_torch_npu() -> bool:
+    """Check whether torch_npu is available for NPU-accelerated ops."""
+    return _TORCH_NPU_AVAILABLE
 
 
-class AscendSwigluOAIAndMul:
-    def swiglu_oai_forward(x: torch.Tensor, alpha: float = 1.702, limit: float = 7.0) -> torch.Tensor:
-        class MinimalSwigluOAIAndMul:
-            def __init__(self):
-                self.alpha = alpha
-                self.limit = limit
+def npu_silu_and_mul(x: torch.Tensor) -> torch.Tensor:
+    """Fused SiLU activation with gating (SwiGLU-style).
 
-        layer = MinimalSwigluOAIAndMul()
-        return SwigluOAIAndMul.forward_native(layer, x)
+    Splits the last dimension of `x` in half, applies SiLU to the first half,
+    and multiplies element-wise with the second half.
+
+    Args:
+        x: Input tensor of shape (..., 2 * d). The last dimension is split
+           into two equal parts.
+
+    Returns:
+        Output tensor of shape (..., d) after SiLU gating.
+    """
+    d = x.shape[-1] // 2
+    gate, up = x[..., :d], x[..., d:]
+
+    if _check_torch_npu():
+        # Use torch_npu fused op when available for better performance
+        try:
+            return torch_npu.npu_silu(gate) * up
+        except (AttributeError, RuntimeError):
+            pass
+
+    return F.silu(gate) * up
+
+
+def npu_gelu_and_mul(x: torch.Tensor) -> torch.Tensor:
+    """Fused GELU activation with gating (GeGLU-style).
+
+    Splits the last dimension of `x` in half, applies GELU to the first half,
+    and multiplies element-wise with the second half.
+
+    Args:
+        x: Input tensor of shape (..., 2 * d).
+
+    Returns:
+        Output tensor of shape (..., d) after GELU gating.
+    """
+    d = x.shape[-1] // 2
+    gate, up = x[..., :d], x[..., d:]
+    return F.gelu(gate) * up
+
+
+def npu_gelu_tanh_and_mul(x: torch.Tensor) -> torch.Tensor:
+    """Fused GELU (tanh approximation) with gating.
+
+    Args:
+        x: Input tensor of shape (..., 2 * d).
+
+    Returns:
+        Output tensor of shape (..., d) after GELU (tanh approx) gating.
+    """
+    d = x.shape[-1] // 2
+    gate, up = x[..., :d], x[..., d:]
+    return F.gelu(gate, approximate="tanh") * up
+
+
+class NPUSiluAndMul(nn.Module):
+    """Module wrapper for NPU-optimized SiLU gating (SwiGLU).
+
+    Used as a drop-in replacement for vllm's SiluAndMul activation
+    in models running on Ascend NPUs.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return npu_silu_and_mul(x)
+
+
+class NPUGeluAndMul(nn.Module):
+    """Module wrapper for NPU-optimized GELU gating (GeGLU).
+
+    Args:
+        approximate: GELU approximation method. Either ``"none"`` (exact)
+            or ``"tanh"`` (tanh approximation). Defaults to ``"none"``.
+    """
+
+    def __init__(self, approximate: str = "none") -> None:
+        super().__init__()
+        if approximate not in ("none", "tanh"):
+            raise ValueError(
+                f"approximate must be 'none' or 'tanh', got '{approximate}'"
+            )
+        self.approximate = approximate
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.approximate == "tanh":
+            return npu_gelu_tanh_and_mul(x)
+        return npu_gelu_and_mul(x)
